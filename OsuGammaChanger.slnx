@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="OsuGammaChanger.Core/OsuGammaChanger.Core.csproj" />
+  <Project Path="OsuGammaChanger.Tests/OsuGammaChanger.Tests.csproj" />
+  <Project Path="OsuGammaChanger.Tray/OsuGammaChanger.Tray.csproj" />
+</Solution>
