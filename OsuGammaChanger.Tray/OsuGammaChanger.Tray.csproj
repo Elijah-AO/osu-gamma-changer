@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\OsuGammaChanger.Core\OsuGammaChanger.Core.csproj" />
-    <PackageReference Include="OsuMemoryDataProvider" Version="0.12.1" />
+    <PackageReference Include="OsuMemoryDataProvider" Version="0.12.2" />
   </ItemGroup>
 
 </Project>
