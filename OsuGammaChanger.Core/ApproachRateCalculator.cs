@@ -17,6 +17,23 @@ public static class ApproachRateCalculator
             difficultyAdjustedAr = Math.Min(difficultyAdjustedAr * 1.4d, 10d);
 
         var speedMultiplier = GetSpeedMultiplier(mods);
+        return Calculate(baseAr, rawMods, difficultyAdjustedAr, speedMultiplier);
+    }
+
+    public static EffectiveArResult Calculate(
+        double baseAr,
+        int rawMods,
+        double difficultyAdjustedAr,
+        double speedMultiplier)
+    {
+        if (!double.IsFinite(baseAr))
+            throw new ArgumentOutOfRangeException(nameof(baseAr), "Base AR must be finite.");
+        if (!double.IsFinite(difficultyAdjustedAr))
+            throw new ArgumentOutOfRangeException(nameof(difficultyAdjustedAr), "Difficulty-adjusted AR must be finite.");
+        if (!double.IsFinite(speedMultiplier) || speedMultiplier <= 0)
+            throw new ArgumentOutOfRangeException(nameof(speedMultiplier), "Speed multiplier must be finite and greater than zero.");
+
+        var mods = (OsuMods)rawMods;
         var preempt = PreemptFromAr(difficultyAdjustedAr);
         var effectivePreempt = preempt / speedMultiplier;
         var effectiveAr = ArFromPreempt(effectivePreempt);
@@ -25,6 +42,34 @@ public static class ApproachRateCalculator
             baseAr,
             rawMods,
             mods,
+            difficultyAdjustedAr,
+            speedMultiplier,
+            preempt,
+            effectivePreempt,
+            effectiveAr);
+    }
+
+    public static EffectiveArResult FromEffectiveAr(
+        double baseAr,
+        int rawMods,
+        double effectiveAr,
+        double speedMultiplier)
+    {
+        if (!double.IsFinite(baseAr))
+            throw new ArgumentOutOfRangeException(nameof(baseAr), "Base AR must be finite.");
+        if (!double.IsFinite(effectiveAr))
+            throw new ArgumentOutOfRangeException(nameof(effectiveAr), "Effective AR must be finite.");
+        if (!double.IsFinite(speedMultiplier) || speedMultiplier <= 0)
+            throw new ArgumentOutOfRangeException(nameof(speedMultiplier), "Speed multiplier must be finite and greater than zero.");
+
+        var effectivePreempt = PreemptFromAr(effectiveAr);
+        var preempt = effectivePreempt * speedMultiplier;
+        var difficultyAdjustedAr = ArFromPreempt(preempt);
+
+        return new EffectiveArResult(
+            baseAr,
+            rawMods,
+            (OsuMods)rawMods,
             difficultyAdjustedAr,
             speedMultiplier,
             preempt,

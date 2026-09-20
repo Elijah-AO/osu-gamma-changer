@@ -10,6 +10,19 @@ public static class ConfigValidator
         if (config.PollingIntervalMs < 50)
             errors.Add("pollingIntervalMs must be at least 50.");
 
+        if (!string.IsNullOrWhiteSpace(config.TosuApiUrl))
+        {
+            if (!Uri.TryCreate(config.TosuApiUrl, UriKind.Absolute, out var tosuUri) ||
+                (tosuUri.Scheme != Uri.UriSchemeHttp && tosuUri.Scheme != Uri.UriSchemeHttps))
+            {
+                errors.Add("tosuApiUrl must be an absolute HTTP or HTTPS URL, or empty to disable osu!lazer support.");
+            }
+            else if (!tosuUri.IsLoopback)
+            {
+                warnings.Add("tosuApiUrl is not a loopback address; tosu normally runs on this computer.");
+            }
+        }
+
         if (config.ArRanges.Count == 0)
             warnings.Add("arRanges is empty; no gameplay gamma will be applied.");
 

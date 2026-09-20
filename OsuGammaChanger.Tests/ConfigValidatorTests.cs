@@ -42,4 +42,15 @@ public class ConfigValidatorTests
         Assert.True(result.IsValid);
         Assert.NotEmpty(result.Warnings);
     }
+
+    [Fact]
+    public void RejectsInvalidTosuApiUrl()
+    {
+        var config = new AppConfig { TosuApiUrl = "not a URL" };
+
+        var result = ConfigValidator.Validate(config);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Contains("tosuApiUrl"));
+    }
 }

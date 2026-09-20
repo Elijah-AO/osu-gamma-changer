@@ -32,4 +32,56 @@ public class ApproachRateCalculatorTests
 
         Assert.Equal(ar, converted, precision: 8);
     }
+
+    [Theory]
+    [InlineData(9, 9, 1.2, 9.6667)]
+    [InlineData(9, 9, 1.5, 10.3333)]
+    [InlineData(8, 10, 0.75, 9)]
+    public void CalculatesUsingProviderAdjustedArAndCustomRate(
+        double baseAr,
+        double adjustedAr,
+        double speedMultiplier,
+        double expected)
+    {
+        var result = ApproachRateCalculator.Calculate(
+            baseAr,
+            (int)OsuMods.DoubleTime,
+            adjustedAr,
+            speedMultiplier);
+
+        Assert.Equal(expected, result.EffectiveAr, precision: 4);
+        Assert.Equal(adjustedAr, result.DifficultyAdjustedAr);
+        Assert.Equal(speedMultiplier, result.SpeedMultiplier);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(double.NaN)]
+    public void RejectsInvalidCustomRate(double speedMultiplier)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ApproachRateCalculator.Calculate(9, 0, 9, speedMultiplier));
+    }
+
+    [Theory]
+    [InlineData(9, 11, 1.5, 10)]
+    [InlineData(9, 9.6667, 1.2, 9)]
+    [InlineData(8, 9, 0.75, 10)]
+    public void UsesProviderEffectiveArWithoutApplyingRateTwice(
+        double baseAr,
+        double effectiveAr,
+        double speedMultiplier,
+        double expectedDifficultyAdjustedAr)
+    {
+        var result = ApproachRateCalculator.FromEffectiveAr(
+            baseAr,
+            (int)OsuMods.DoubleTime,
+            effectiveAr,
+            speedMultiplier);
+
+        Assert.Equal(effectiveAr, result.EffectiveAr, precision: 4);
+        Assert.Equal(expectedDifficultyAdjustedAr, result.DifficultyAdjustedAr, precision: 4);
+        Assert.Equal(speedMultiplier, result.SpeedMultiplier);
+    }
 }

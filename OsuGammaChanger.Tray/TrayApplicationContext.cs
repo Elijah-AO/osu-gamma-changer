@@ -9,6 +9,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly NotifyIcon _notifyIcon;
     private readonly ToolStripMenuItem _statusItem;
     private readonly System.Windows.Forms.Timer _timer = new();
+    private readonly CancellationTokenSource _shutdown = new();
     private AppConfig _config = new();
     private ConfigValidationResult _configValidation = new([], []);
     private OsuStateReader _osuStateReader;
@@ -16,6 +17,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private GammaController? _gammaController;
     private string _lastPollSignature = string.Empty;
     private string _currentMonitorDeviceName = string.Empty;
+    private bool _isExiting;
 
     public TrayApplicationContext()
     {
@@ -32,7 +34,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _logger.Info("osu! gamma changer starting.");
         LoadConfig(showBalloon: true);
 
-        _timer.Tick += (_, _) => OnPollTimerTick();
+        _timer.Tick += async (_, _) => await OnPollTimerTickAsync();
         _timer.Interval = Math.Max(_config.PollingIntervalMs, 50);
         _timer.Start();
     }
@@ -75,7 +77,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
             EnsureGammaDevice();
             _statusItem.Text = "Ready";
-            _logger.Info($"Config loaded. ranges={_config.ArRanges.Count}, pollingIntervalMs={_config.PollingIntervalMs}, monitor='{_config.MonitorDeviceName}', osuSongsDirectory='{_config.OsuSongsDirectory}'");
+            _logger.Info($"Config loaded. ranges={_config.ArRanges.Count}, pollingIntervalMs={_config.PollingIntervalMs}, monitor='{_config.MonitorDeviceName}', osuSongsDirectory='{_config.OsuSongsDirectory}', tosuApiUrl='{_config.TosuApiUrl}'");
             if (showBalloon)
                 ShowBalloon("Config loaded", "osu! gamma changer is ready.");
         }
@@ -88,21 +90,36 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
-    private void OnPollTimerTick()
+    private async Task OnPollTimerTickAsync()
     {
         _timer.Stop();
         try
         {
-            PollOnce();
+            await PollOnceAsync();
+        }
+        catch (OperationCanceledException) when (_isExiting)
+        {
+            // Normal during application shutdown.
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "Unexpected polling failure.");
+            _statusItem.Text = "Polling failed; check logs";
+            _gammaController?.HandleNotPlaying(
+                _config.RestoreOriginalRampWhenNotPlaying,
+                $"unexpected polling failure: {ex.Message}");
         }
         finally
         {
-            _timer.Interval = Math.Max(_config.PollingIntervalMs, 50);
-            _timer.Start();
+            if (!_isExiting)
+            {
+                _timer.Interval = Math.Max(_config.PollingIntervalMs, 50);
+                _timer.Start();
+            }
         }
     }
 
-    private void PollOnce()
+    private async Task PollOnceAsync()
     {
         if (!_configValidation.IsValid)
             return;
@@ -114,7 +131,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
-        var state = _osuStateReader.Poll(_config);
+        var state = await _osuStateReader.PollAsync(_config, _shutdown.Token);
         if (state.Signature != _lastPollSignature)
         {
             _lastPollSignature = state.Signature;
@@ -125,7 +142,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             _statusItem.Text = state.OsuProcessReadable
                 ? $"Not playing: {state.Status?.ToString() ?? "unknown"}"
-                : "osu! not detected";
+                : state.Client == "lazer"
+                    ? "lazer detected; tosu unavailable"
+                    : "osu! not detected";
             _gammaController.HandleNotPlaying(_config.RestoreOriginalRampWhenNotPlaying, state.Detail);
             return;
         }
@@ -138,7 +157,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
-        var effective = ApproachRateCalculator.Calculate(state.BaseAr.Value, state.RawMods);
+        var effective = state.EffectiveAr.HasValue && state.SpeedMultiplier.HasValue
+            ? ApproachRateCalculator.FromEffectiveAr(
+                state.BaseAr.Value,
+                state.RawMods,
+                state.EffectiveAr.Value,
+                state.SpeedMultiplier.Value)
+            : ApproachRateCalculator.Calculate(state.BaseAr.Value, state.RawMods);
         _logger.Info($"AR calculation: baseAR={effective.BaseAr:0.####}, baseSource={state.BaseArSource}, rawMods={effective.RawMods}, mods={effective.Mods}, difficultyAdjustedAR={effective.DifficultyAdjustedAr:0.####}, speed={effective.SpeedMultiplier:0.##}, preemptMs={effective.PreemptMs:0.####}, effectivePreemptMs={effective.EffectivePreemptMs:0.####}, effectiveAR={effective.EffectiveAr:0.####}, beatmapId={state.BeatmapId}, hash={state.BeatmapHash}, path={state.BeatmapPath ?? "(unresolved)"}");
 
         var match = RangeMatcher.Match(_config.ArRanges, effective.EffectiveAr);
@@ -210,8 +235,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     protected override void ExitThreadCore()
     {
+        _isExiting = true;
         _logger.Info("Application exit requested.");
         _timer.Stop();
+        _shutdown.Cancel();
         if (_config.RestoreOriginalRampOnExit)
             _gammaController?.RestoreOriginalIfAvailable("application exit", "ExitThreadCore");
         else
@@ -219,6 +246,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
+        _osuStateReader.Dispose();
+        _shutdown.Dispose();
         _gammaDevice?.Dispose();
         _logger.Info("osu! gamma changer stopped.");
         _logger.Dispose();

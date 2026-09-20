@@ -5,17 +5,36 @@ using OsuMemoryDataProvider.OsuMemoryModels.Direct;
 
 namespace OsuGammaChanger.Tray;
 
-internal sealed class OsuStateReader
+internal sealed class OsuStateReader : IDisposable
 {
     private readonly FileLogger _logger;
     private readonly StructuredOsuMemoryReader _reader = StructuredOsuMemoryReader.Instance;
+    private readonly TosuStateReader _tosuReader = new();
 
     public OsuStateReader(FileLogger logger)
     {
         _logger = logger;
     }
 
-    public OsuPollResult Poll(AppConfig config)
+    public async Task<OsuPollResult> PollAsync(AppConfig config, CancellationToken cancellationToken = default)
+    {
+        if (TosuStateReader.IsLazerRunning())
+        {
+            var lazerResult = await _tosuReader.PollAsync(config, cancellationToken);
+            if (lazerResult?.OsuProcessReadable == true)
+                return lazerResult;
+
+            var stableResult = PollStable(config);
+            if (stableResult.IsActiveGameplay || lazerResult is null)
+                return stableResult;
+
+            return lazerResult;
+        }
+
+        return PollStable(config);
+    }
+
+    private OsuPollResult PollStable(AppConfig config)
     {
         try
         {
@@ -78,6 +97,8 @@ internal sealed class OsuStateReader
         }
     }
 
+    public void Dispose() => _tosuReader.Dispose();
+
     private OsuPollResult CreateGameplayResult(
         AppConfig config,
         CurrentBeatmap beatmap,
@@ -134,22 +155,29 @@ internal sealed class OsuStateReader
 
     private static string? TryFindDefaultSongsDirectory()
     {
-        try
+        foreach (var process in Process.GetProcessesByName("osu!"))
         {
-            var process = Process.GetProcessesByName("osu!").FirstOrDefault();
-            var osuDirectory = process?.MainModule?.FileName is { } fileName
-                ? Path.GetDirectoryName(fileName)
-                : null;
+            using (process)
+            {
+                try
+                {
+                    var osuDirectory = process.MainModule?.FileName is { } fileName
+                        ? Path.GetDirectoryName(fileName)
+                        : null;
+                    if (osuDirectory is null)
+                        continue;
 
-            if (osuDirectory is null)
-                return null;
+                    var songs = Path.Combine(osuDirectory, "Songs");
+                    if (Directory.Exists(songs))
+                        return songs;
+                }
+                catch
+                {
+                    // Keep looking; one of multiple osu! processes may be inaccessible.
+                }
+            }
+        }
 
-            var songs = Path.Combine(osuDirectory, "Songs");
-            return Directory.Exists(songs) ? songs : null;
-        }
-        catch
-        {
-            return null;
-        }
+        return null;
     }
 }

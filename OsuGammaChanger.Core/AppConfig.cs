@@ -28,6 +28,7 @@ public sealed class AppConfig
     public int PollingIntervalMs { get; set; } = 250;
     public string MonitorDeviceName { get; set; } = string.Empty;
     public string OsuSongsDirectory { get; set; } = string.Empty;
+    public string TosuApiUrl { get; set; } = "http://127.0.0.1:24050/json/v2";
 
     public static AppConfig LoadOrCreate(string path)
     {
